@@ -7,15 +7,8 @@
 
 import SwiftUI
 
-
-
-
-//q param is for location i.e. city name
-//days is number of days
-//optional hour in 24 hour time i.e. 6 or 18
-
 class WeatherAPIClient {
-    let KEY = "0e38bcd5edd44e1da86145821251401"
+    let KEY =  WeatherAppConfigurations.getValueFor(.weatherAPIKey) ?? "NO KEY"
     let baseURL = "https://api.weatherapi.com/v1"
 
     let forecastPath = "/forecast.json"
@@ -24,9 +17,20 @@ class WeatherAPIClient {
     
     let decoder = JSONDecoder()
     
+    let dateFormatter = DateFormatter()
+    
     static let shared = WeatherAPIClient()
     
-    func getAvgTemp(for location: String, hour: Int) async throws -> ForecastHour {
+    init() {
+       /* guard let KEY = WeatherAppConfigurations.getValueFor(.weatherAPIKey) else {
+            throw WeatherError.badURL
+        }*/
+        
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+        decoder.dateDecodingStrategy = .formatted(dateFormatter)
+    }
+    
+    func getForecast(for location: String) async throws -> WeatherAPIResponse {
         let endpoint = baseURL + forecastPath + "?key=\(KEY)&q=\(location)&aqi=no&alerts=no"
         
         guard let url = URL(string: endpoint) else {
@@ -41,9 +45,8 @@ class WeatherAPIClient {
         
         do {
             let decodedForecast = try decoder.decode(WeatherAPIResponse.self, from: data)
-            return decodedForecast.forecast.forecastday[0].hour[hour]
+            return decodedForecast
         } catch {
-            //print(String(describing: error))
             throw WeatherError.invalidData
         }
     }

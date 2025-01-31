@@ -8,7 +8,13 @@
 import Foundation
 
 struct WeatherAPIResponse: Codable, Hashable {
+    var location: ForecastLocation
     var forecast: WeatherForecast
+}
+
+struct ForecastLocation: Codable, Hashable {
+    var name: String
+    var localtime: Date //date stored as MM-dd-yyyy HH:mm https://nemecek.be/blog/95/how-to-decode-dates-with-codable
 }
 
 struct WeatherForecast: Codable, Hashable {
@@ -16,7 +22,16 @@ struct WeatherForecast: Codable, Hashable {
 }
 
 struct ForecastDay: Codable, Hashable {
+    var astro: ForecastAstro
     var hour: [ForecastHour]
+}
+
+struct ForecastAstro: Codable, Hashable {
+    var sunrise: String
+    var sunset: String
+    var moonrise: String
+    var moonset: String
+    var moon_phase: String
 }
 
 struct WeatherCondition: Codable, Hashable {

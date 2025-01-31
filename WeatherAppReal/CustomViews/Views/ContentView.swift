@@ -5,6 +5,11 @@
 //  Created by "Khalid Olowe-Makorie, Vodafone" on 06/01/2025.
 //
 
+//TODO
+//colour gue
+//sun position needs to be correct to hour -> sun needs 12 positions same with moon
+//sync sun and moon to sunrise and moonrise
+
 import SwiftUI
 import SpriteKit
 
@@ -17,48 +22,21 @@ struct Item: Identifiable {
     let dayType: DayType
 }
 
-enum DayType: String {
-    case day, night
-}
-
-struct Coordinate: Identifiable{
-    let id = UUID()
-    let x: CGFloat
-    let y: CGFloat
-}
-
-struct DayData {
-    static var days = [Item(location: "London", temp: "12", color: .black, time: "8", dayType: .day),
-                       Item(location: "London", temp: "13", color: .purple, time: "12", dayType: .day),
-                       Item(location: "London", temp: "16", color: .blue, time: "1", dayType: .day),
-                       Item(location: "London", temp: "11", color: .purple, time: "3", dayType: .day),
-                       Item(location: "London", temp: "11", color: .black, time: "5", dayType: .day),
-                       Item(location: "London", temp: "9", color: .black, time: "8", dayType: .night),
-                       Item(location: "London", temp: "8", color: .purple, time: "9", dayType: .night),
-                       Item(location: "London", temp: "8", color: .purple, time: "10", dayType: .night),
-                    Item(location: "London", temp: "7", color: .purple, time: "11", dayType: .night),
-                       Item(location: "London", temp: "7", color: .black, time: "12", dayType: .night),
-                      ]
-    
-    static var sun = [Coordinate(x: -180, y: 0),
-                      Coordinate(x: -110, y: -70),
-                      Coordinate(x: 0, y: -170),
-                      Coordinate(x: 110, y: -70),
-                      Coordinate(x: 180, y: 0)]
-}
-
 struct ContentView: View {
     
     var screenWidth: CGFloat = UIScreen.main.bounds.width
     var screenHeight: CGFloat = UIScreen.main.bounds.height
     
-    @State var sunX: CGFloat = DayData.sun[0].x
-    @State var sunY: CGFloat = DayData.sun[0].y
+    @State var dayData:DayData = DayData(daysData: [])
+    
+    @State var sunX: CGFloat = DayData.SunPositions[0].x
+    @State var sunY: CGFloat = DayData.SunPositions[0].y
     @State var sunIndex: Int = 0
     
     let weatherOffset: CGFloat = -UIScreen.main.bounds.width*1.02
+    
     @State var weatherIndex = 0
-    @State var weatherPos: CGFloat = (UIScreen.main.bounds.width * 4.59)
+    @State var weatherPos: CGFloat = UIScreen.main.bounds.width*11.73
     
     @State var clockRotation: Angle = Angle(degrees: 0)
     @State var clockIncrement: Angle = Angle(degrees: 30)
@@ -67,51 +45,84 @@ struct ContentView: View {
     @State var weatherAngle: Double = 0
     @State var landscapeAngle: Double = 0
     
+    @State var isLoading: Bool = false
     
+    @State var presentPopUp: Bool = false
+    @State var errorDescription: String = ""
     
     var body: some View {
+        
         ZStack {
             
-            WeatherEnvironment(skyColorAngle: weatherAngle, landscapeColorAngle: landscapeAngle, weatherIndex: weatherIndex, sunX: sunX, sunY: sunY)
+            if dayData.days.count > 0 {
+                WeatherEnvironment(dayData: dayData, skyColorAngle: weatherAngle, landscapeColorAngle: landscapeAngle, weatherIndex: weatherIndex, sunX: sunX, sunY: sunY)
+            }
             
             HStack {
-                ForEach(DayData.days) { day in
+                ForEach(dayData.days) { day in
                     
-                    DayScreen(temperature: day.temp, screenColour: day.color, weatherIcon: "sun.max", weatherText: "It's Sunny", screenWidth: screenWidth)
+                    DayScreen(temperature: day.temp, screenColour: day.color, weatherIcon: "sun.max", weatherText: day.conditionText, screenWidth: screenWidth)
                 }
             }.offset(x:weatherPos, y: 0)
                 .edgesIgnoringSafeArea(.all)
             
-            LocationTimeDisplay(location: "London", timeString: "Today, Jan 13 12:04")
+            LocationTimeDisplay(location: dayData.location, timeString: "Today, \(dayData.currentDateTime)")
             .offset(x: -100, y:-330)
             .padding(16)
 
             WeatherClock(clockRotation: clockRotation, clockTime: clockTime)
                 .offset(y: 390)
+            
+            if (isLoading){
+                ProgressView()
+                    .scaleEffect(3)
+            }
+            
+            if(presentPopUp){
+                Popup(isPresented: $presentPopUp, title:"Something went wrong", message:errorDescription, actionLabel:"Ok")
+            }
+            
         }
         .swipe( left: {
             swipeLeft()
-            getWeatherData()
         }, right: {
             swipeRight()
         })
-    }
-    
-    func getWeatherData() {
-        Task {
-            do {
-                let weatherReponse = try await WeatherAPIClient.shared.getAvgTemp(for: "sdfsdf", hour: 12)
-                print(weatherReponse)
-            } catch {
-                print("Nooooo \(error.localizedDescription)")
+        .onAppear {
+            isLoading = true
+            
+            Task {
+                do {
+                    let weatherReponse = try await WeatherAPIClient.shared.getForecast(for: "London")
+                    dayData = DayData(location: weatherReponse.location.name, forecastData: weatherReponse.forecast.forecastday[0].hour, dateTime: weatherReponse.location.localtime)
+                    
+                    let calendar = Calendar.current
+                    let hour = calendar.component(.hour, from: weatherReponse.location.localtime)
+                    
+                    weatherPos = weatherPos + CGFloat(hour) * weatherOffset
+                    weatherIndex = hour
+                    clockTime = "\(hour)"
+                    
+                    isLoading = false
+                    
+                } catch {
+                    //Convert to weather error
+                    presentPopUp = true
+                    if let weatherError = error as? WeatherError {
+                        errorDescription = weatherError.rawValue
+                    }else {
+                        errorDescription = WeatherError.unableToComplete.rawValue
+                    }
+                    
+                    isLoading = false
+                }
             }
-           
         }
     }
     
     func swipeLeft() {
         withAnimation {
-            if(weatherIndex < DayData.days.count - 1){
+            if(weatherIndex < dayData.days.count - 1){
                 weatherIndex += 1
                 weatherPos += weatherOffset
                 clockRotation -= clockIncrement
@@ -119,15 +130,15 @@ struct ContentView: View {
                 sunIndex += 1
                 weatherAngle += 5
                 
-                if(sunIndex >= DayData.sun.count){ sunIndex = 0}
+                if(sunIndex >= DayData.SunPositions.count){ sunIndex = 0}
             }
             
-            sunX = DayData.sun[sunIndex].x
-            sunY = DayData.sun[sunIndex].y
+            sunX = DayData.SunPositions[sunIndex].x
+            sunY = DayData.SunPositions[sunIndex].y
             
-            clockTime = DayData.days[weatherIndex].time
+            clockTime = dayData.days[weatherIndex].time
             
-            if (DayData.days[weatherIndex].dayType == DayType.day){
+            if (dayData.days[weatherIndex].dayType == DayType.day){
                 landscapeAngle = 0
             }else{
                 landscapeAngle = 155
@@ -145,20 +156,75 @@ struct ContentView: View {
                 sunIndex -= 1
                 weatherAngle -= 5
                 
-                if(sunIndex < 0){ sunIndex = DayData.sun.count - 1}
+                if(sunIndex < 0){ sunIndex = DayData.SunPositions.count - 1}
             }
-            sunX = DayData.sun[sunIndex].x
-            sunY = DayData.sun[sunIndex].y
+            sunX = DayData.SunPositions[sunIndex].x
+            sunY = DayData.SunPositions[sunIndex].y
             
-            clockTime = DayData.days[weatherIndex].time
+            clockTime = dayData.days[weatherIndex].time
             
-            if (DayData.days[weatherIndex].dayType == DayType.day){
+            if (dayData.days[weatherIndex].dayType == DayType.day){
                 landscapeAngle = 0
             }else{
                 landscapeAngle = 155
             }
         }
     }
+}
+
+struct Popup: View {
+    
+    let containerWidth:CGFloat =  UIScreen.main.bounds.size.width - 70
+    
+    @Binding var isPresented: Bool
+    
+    let title: String
+    let message: String
+    let actionLabel: String
+    
+    var body: some View {
+        
+        ZStack {
+        
+            Rectangle()
+                .fill(.black.opacity(0.9))
+                .ignoresSafeArea()
+                .clipShape(.rect(cornerRadius: 10))
+            
+            VStack(spacing: 40){
+                Text(title)
+                    .foregroundColor(.white)
+                    .font(.system(size: 22, weight: .bold))
+                
+                Text(message)
+                    .foregroundColor(.white)
+                    .font(.system(size: 20))
+                    .padding(12)
+                
+                Button(action: {
+                    withAnimation {
+                        isPresented = false
+                    }
+                }, label: {
+                    HStack(){
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(Color.black)
+                        Text(actionLabel)
+                            .foregroundColor(.black)
+                            .font(.system(size: 20))
+                    }
+                    .padding(12)
+                }) .frame(width: containerWidth - 50)
+                .background(Color.green)
+                    .clipShape(.rect(cornerRadius: 12))
+                   
+            }
+            .padding(16)
+        } .frame(
+            width: containerWidth, height: 280)
+        
+    }
+    
 }
 
 struct LocationTimeDisplay: View {
@@ -182,7 +248,7 @@ struct LocationTimeDisplay: View {
             Text(timeString)
                 .font(.system(size: 22, weight: .light))
                 .foregroundColor(.white)
-                .offset(x: 16)
+                .offset(x: 10)
         }
     }
 }
@@ -191,6 +257,8 @@ struct WeatherEnvironment: View {
     
     var screenWidth: CGFloat = UIScreen.main.bounds.width
     var screenHeight: CGFloat = UIScreen.main.bounds.height
+    
+    let dayData:DayData
     
     let skyColorAngle: Double
     let landscapeColorAngle: Double
@@ -201,9 +269,9 @@ struct WeatherEnvironment: View {
     var body: some View {
         Color(red: 55.8, green: 80, blue: 64.5, opacity: 1.0)
         Image("Sky").offset(y: -300)
-            .hueRotation(.degrees(skyColorAngle))
+            .hueRotation(.degrees(skyColorAngle))  //todo correct sky angle to day and night
         
-        if (DayData.days[weatherIndex].dayType == DayType.day){
+        if (dayData.days[weatherIndex].dayType == DayType.day){
             Image("Sun")
                 .offset(x: sunX, y: sunY)
         }else{
@@ -220,13 +288,32 @@ struct WeatherEnvironment: View {
             .scaleEffect(0.5)
         
         //Clouds
-        Image("misty-clouds")
-            .offset(y: 40)
-        
+        let cloudCondition = dayData.days[weatherIndex].cloudCondition
+        switch(cloudCondition){
+        case _ where cloudCondition < 26:
+            Image("misty-clouds")
+                .opacity(0)
+        case _ where cloudCondition < 35:
+            Image("misty-clouds")
+                .offset(y: 40)
+                .opacity(0.6)
+        case _ where cloudCondition < 55:
+            Image("misty-clouds")
+                .offset(y: 40)
+        default:
+            Image("misty-clouds")
+                .offset(y: 40)
+            Image("misty-clouds")
+                .offset(y: 120)
+        }
+       
         //Rain
-        SpriteView(scene: RainFall(), options: [.allowsTransparency])
-            .frame(width: screenWidth, height: screenHeight)
-            .ignoresSafeArea()
+        if (dayData.days[weatherIndex].isRaining){
+            SpriteView(scene: RainFall(), options: [.allowsTransparency])
+                .frame(width: screenWidth, height: screenHeight)
+                .ignoresSafeArea()
+        }
+        
     }
 }
 
@@ -273,26 +360,39 @@ struct DayScreen: View {
                 .foregroundColor(screenColour)
                 .opacity(0.2)
             
-            VStack(spacing: 30) {
-                Image(systemName: weatherIcon)
-                    .scaleEffect(2.8)
-                    .foregroundColor(.white)
-                    .offset(x:-25)
-                Text(weatherText)
-                    .font(.system(size: 25, weight: .regular))
-                    .foregroundColor(.white)
-            }.offset(x:-125, y:-185)
+            HStack() {
+                VStack(alignment: .leading, spacing: 20) {
+                    
+                    Image(systemName: weatherIcon)
+                        .padding()
+                        .scaleEffect(2.8)
+                        .foregroundColor(.white)
+                    Text(weatherText)
+                        .font(.system(size: 25, weight: .regular))
+                        .foregroundColor(.white)
+                }
+            }
+            .padding(22)
+            .frame(width: screenWidth, alignment: .leading)
+           // .border(Color.red, width: 3) //debug border
+            .offset( y:-185)
+            
             
             HStack {
                 Text(temperature)
                     .font(.system(size: 100, weight: .bold))
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
                 Text("°")
                     .font(.system(size: 70, weight: .light))
                     .foregroundColor(.white)
-                    .offset(x: -8, y:-30)
-            } .offset(x:110, y:-190)
+                    .offset(x: -15, y:-30)
+            }
+                .frame(width: screenWidth, alignment: .trailing)
+                .padding(-16)
+                .offset( y:-185)
+              //  .border(Color.red, width: 3)
+            
+            
         }
     }
     
@@ -315,4 +415,15 @@ class RainFall: SKScene {
     }
 }
 
-#Preview {ContentView()}
+#Preview {
+    
+    let previewDayData: [WeatherHourItem] = [WeatherHourItem(location: "London", temp: "12", color: .black, time: "8", dayType: .day, conditionText: "It's Sunny"),
+                                             WeatherHourItem(location: "London", temp: "13", color: .purple, time: "12", dayType: .day, conditionText: "It's Sunny")
+                                                     ]
+    
+    let dayData:DayData = DayData(daysData: previewDayData)
+    ContentView(dayData: dayData)
+}
+
+
+
