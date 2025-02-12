@@ -9,9 +9,12 @@
 //colour gue
 //sun position needs to be correct to hour -> sun needs 12 positions same with moon
 //sync sun and moon to sunrise and moonrise
+//app icon
 
 import SwiftUI
 import SpriteKit
+
+let STARTING_WEATHER_POS = UIScreen.main.bounds.width*11.73
 
 struct Item: Identifiable {
     let id = UUID()
@@ -36,7 +39,7 @@ struct ContentView: View {
     let weatherOffset: CGFloat = -UIScreen.main.bounds.width*1.02
     
     @State var weatherIndex = 0
-    @State var weatherPos: CGFloat = UIScreen.main.bounds.width*11.73
+    @State var weatherPos: CGFloat = STARTING_WEATHER_POS
     
     @State var clockRotation: Angle = Angle(degrees: 0)
     @State var clockIncrement: Angle = Angle(degrees: 30)
@@ -49,6 +52,8 @@ struct ContentView: View {
     
     @State var presentPopUp: Bool = false
     @State var errorDescription: String = ""
+    
+    @State var inputLocation: String = "London"
     
     var body: some View {
         
@@ -66,7 +71,8 @@ struct ContentView: View {
             }.offset(x:weatherPos, y: 0)
                 .edgesIgnoringSafeArea(.all)
             
-            LocationTimeDisplay(location: dayData.location, timeString: "Today, \(dayData.currentDateTime)")
+            //location: dayData.location
+            LocationTimeDisplay(timeString: "Today, \(dayData.currentDateTime)", location: $inputLocation, dayData: $dayData, isLoading: $isLoading, weatherIndex: $weatherIndex, weatherPos: $weatherPos, weatherOffset: weatherOffset, clockTime: $clockTime, errorDescription: $errorDescription, presentPopUp: $presentPopUp)
             .offset(x: -100, y:-330)
             .padding(16)
 
@@ -93,13 +99,13 @@ struct ContentView: View {
             
             Task {
                 do {
-                    let weatherReponse = try await WeatherAPIClient.shared.getForecast(for: "London")
+                    let weatherReponse = try await WeatherAPIClient.shared.getForecast(for: inputLocation)
                     dayData = DayData(location: weatherReponse.location.name, forecastData: weatherReponse.forecast.forecastday[0].hour, dateTime: weatherReponse.location.localtime)
                     
                     let calendar = Calendar.current
                     let hour = calendar.component(.hour, from: weatherReponse.location.localtime)
                     
-                    weatherPos = weatherPos + CGFloat(hour) * weatherOffset
+                    weatherPos = STARTING_WEATHER_POS + CGFloat(hour) * weatherOffset
                     weatherIndex = hour
                     clockTime = "\(hour)"
                     
@@ -147,6 +153,8 @@ struct ContentView: View {
     }
     
     func swipeRight(){
+        print(UIScreen.main.bounds.size.width)
+        
         withAnimation {
             if(weatherIndex > 0){
                 weatherIndex -= 1
@@ -229,26 +237,79 @@ struct Popup: View {
 
 struct LocationTimeDisplay: View {
     
-    let location: String
     let timeString: String
+    
+    let screenWidth =  UIScreen.main.bounds.size.width
+    
+    @Binding var location: String
+    @Binding var dayData:DayData
+    @Binding var isLoading: Bool
+    
+    @Binding var weatherIndex: Int
+    @Binding var weatherPos: CGFloat
+    let weatherOffset: CGFloat
+    
+    @Binding var clockTime: String
+    
+    @Binding var errorDescription: String
+    @Binding var presentPopUp: Bool
+    
     
     var body: some View {
         VStack(spacing: 5){
-            HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 Image(systemName: "mappin.and.ellipse")
                     .foregroundColor(.white)
                     .imageScale(.large)
                 
-                Text(location)
+                TextField("Enter a city", text: $location)
                     .font(.system(size: 35, weight: .heavy))
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-            }
-            
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        reloadDayData()
+                    }
+                   // .multilineTextAlignment(.leading)
+                    
+            }.offset(x: screenWidth*12) //4820
+
             Text(timeString)
                 .font(.system(size: 22, weight: .light))
                 .foregroundColor(.white)
                 .offset(x: 10)
+            
+        }
+    }
+    
+    func reloadDayData(){
+        isLoading = true
+        
+        Task {
+            do {
+                let weatherReponse = try await WeatherAPIClient.shared.getForecast(for: location)
+                
+                dayData = DayData(location: weatherReponse.location.name, forecastData: weatherReponse.forecast.forecastday[0].hour, dateTime: weatherReponse.location.localtime)
+                
+                let calendar = Calendar.current
+                let hour = calendar.component(.hour, from: weatherReponse.location.localtime)
+                
+                weatherPos = STARTING_WEATHER_POS + CGFloat(hour) * weatherOffset
+                weatherIndex = hour
+                clockTime = "\(hour)"
+                
+                isLoading = false
+                
+            } catch {
+                //Convert to weather error
+                presentPopUp = true
+                if let weatherError = error as? WeatherError {
+                    errorDescription = weatherError.rawValue
+                }else {
+                    errorDescription = WeatherError.unableToComplete.rawValue
+                }
+                
+                isLoading = false
+            }
         }
     }
 }
